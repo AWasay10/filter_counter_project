@@ -55,12 +55,13 @@ FILL_COVER      = 0.40   # NEW  gap filling: an EMPTY spot inside the block is s
 EDGE_TEX        = 0.15   # NEW  missing tubes on the outer edge also need this fraction of the local tube-top contrast
 BOX_EXTEND      = 6      # NEW  how many extra rows / columns beyond the counted tubes the box fill may grow while they still look
                          #   tube-white (recovers whole over-exposed rows at the box edge). It stops at the dark rim by itself.
-SIDE_FRAC       = 0.60   # NEW  a new row / column is added only if at least this fraction of its sites look tube-white
+SIDE_FRAC       = 0.45   # NEW  a new row / column is added only if at least this fraction of its sites look tube-white
 BOX_FILL        = True   # NEW  fill the whole box rectangle (in lattice space) where it is still tube-white. This recovers
                          #   OVER-EXPOSED / glare areas where the tubes have no visible detail left. Set False to disable.
 EDGE_ITERS      = 3      # NEW  how many times the outer edge is re-checked for missed tubes (1 column each time, at most)
-HULL_MARGIN     = 1.00   # counted tubes may stick out at most this far (x pitch) beyond the outline of the
-                         #   real detected tubes. Lower (0.6) if circles still appear outside the box.
+HULL_MARGIN     = 0.55   # counted tubes may stick out at most this far (x pitch) beyond the outline of ALL
+                         #   flood-filled tubes (was built from seeds only - now the full accepted set).
+                         #   Lower (0.3) if circles still appear outside the box.
 ROI_MARGIN      = 0.20   # CHANGED (was 0.5) with --manual, how far (x pitch) outside the clicked corners a tube may sit
 START_FULLSCREEN = False
 
@@ -277,8 +278,6 @@ def analyse(img, pitch_px=None, roi=None, log=print):
     s0 = min(1.0, 1600.0 / max(H0, W0))
     small = cv2.resize(img, None, fx=s0, fy=s0, interpolation=cv2.INTER_AREA) if s0 < 1 else img
     p_orig = float(pitch_px) if pitch_px else estimate_pitch(flat_gray(small)) / s0
-    if not np.isfinite(p_orig) or p_orig <= 0:                       # NEW: readable error for photos with no tube pattern
-        raise RuntimeError("no regular tube pattern found in the photo - is the box in the picture?")
     scale = float(np.clip(WORK_PITCH / p_orig, 0.2, 3.0)); scale = min(scale, 3500.0 / max(H0, W0))
     work = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
     p = p_orig * scale
@@ -385,11 +384,12 @@ def analyse(img, pitch_px=None, roi=None, log=print):
             if ok: accepted[nb] = xy; queue.append(nb)
     pruned = []
 
-    # --- NEW: hard boundary. The box is convex, so nothing may lie beyond the outline of the real,
-    # tightly-detected tubes (plus a small margin for the outer row). This stops leaks onto cardboard / floor.
+    # --- hard boundary built from the FULL flood-filled accepted set (not just the seed-matched 'best').
+    # Using 'best' was too conservative: it excluded legitimate outer-ring tubes that passed present().
+    # Now the hull wraps all accepted tubes; HULL_MARGIN guards only against strays on the floor / cardboard.
     hull = None
-    if len(best) >= 3:
-        hull = cv2.convexHull(np.array([cache[k][0] for k in best], np.float32))
+    if len(accepted) >= 3:
+        hull = cv2.convexHull(np.array(list(accepted.values()), np.float32))
     def in_hull(xy):
         return hull is None or cv2.pointPolygonTest(hull, (float(xy[0]), float(xy[1])), True) >= -HULL_MARGIN * p
     for k in list(accepted):
