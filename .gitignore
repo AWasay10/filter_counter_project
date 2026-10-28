@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+build_app/
+.venv/
+count_result.jpg
+count_debug.jpg
